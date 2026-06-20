@@ -1,4 +1,8 @@
+using AiOps.Api.Budget;
+using AiOps.Api.Caching;
+using AiOps.Api.RateLimiting;
 using AiOps.Api.Rag;
+using AiOps.Api.Support;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Azure.Functions.Worker.Builder;
 using Microsoft.Extensions.Configuration;
@@ -42,6 +46,23 @@ else
 builder.Services.AddSingleton<InMemoryVectorStore>();
 builder.Services.AddSingleton<CorpusLoader>();
 builder.Services.AddSingleton<RagService>();
+
+// Stage 2 (1,000 users): tunable reliability/cost limits, read from environment config.
+builder.Services.Configure<ServiceLimitsOptions>(o =>
+{
+    if (double.TryParse(config["CACHE_SIMILARITY_THRESHOLD"], out var threshold)) o.CacheSimilarityThreshold = threshold;
+    if (int.TryParse(config["CACHE_TTL_MINUTES"], out var ttl)) o.CacheTtlMinutes = ttl;
+    if (int.TryParse(config["CACHE_CAPACITY"], out var capacity)) o.CacheCapacity = capacity;
+    if (int.TryParse(config["RATE_LIMIT_PER_MINUTE"], out var rate)) o.RateLimitPerMinute = rate;
+    if (int.TryParse(config["DAILY_TOKEN_BUDGET"], out var daily)) o.DailyTokenBudget = daily;
+});
+
+// Semantic cache + per-user rate limiter + daily token budget. Singletons so their in-memory
+// state is shared across all requests on this replica (correct at a single replica; a shared
+// store such as Redis is the multi-replica scale-out path).
+builder.Services.AddSingleton<ISemanticCache, InMemorySemanticCache>();
+builder.Services.AddSingleton<IRateLimiter, TokenBucketRateLimiter>();
+builder.Services.AddSingleton<ITokenBudget, InMemoryTokenBudget>();
 
 var host = builder.Build();
 

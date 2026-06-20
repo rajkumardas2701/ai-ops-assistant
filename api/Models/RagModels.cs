@@ -11,7 +11,9 @@ public record ChatResponse(
     string Answer,
     IReadOnlyList<Citation> Citations,
     string Provider,
-    int ContextChunks);
+    int ContextChunks,
+    bool Cached = false,
+    int TokensEstimated = 0);
 
 /// <summary>A single indexed unit of a document. The embedding is the vector used for retrieval.</summary>
 public sealed record DocumentChunk

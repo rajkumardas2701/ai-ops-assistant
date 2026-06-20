@@ -132,12 +132,17 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'dotnet-isolated' }
             { name: 'AI_PROVIDER', value: 'local' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
+            { name: 'RATE_LIMIT_PER_MINUTE', value: '20' }
+            { name: 'DAILY_TOKEN_BUDGET', value: '100000' }
+            { name: 'CACHE_SIMILARITY_THRESHOLD', value: '0.95' }
           ]
         }
       ]
       scale: {
+        // Stage 2 state (cache, rate limiter, budget) lives in memory, so the API runs as a
+        // single replica for now. Scaling out requires a shared store (Redis) — a later stage.
         minReplicas: 1
-        maxReplicas: 3
+        maxReplicas: 1
       }
     }
   }

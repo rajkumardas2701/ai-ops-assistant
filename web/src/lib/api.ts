@@ -15,6 +15,8 @@ export interface ChatResponse {
   citations: Citation[];
   provider: string;
   contextChunks: number;
+  cached: boolean;
+  tokensEstimated: number;
 }
 
 export interface HealthResponse {
@@ -30,6 +32,14 @@ export async function ask(question: string, topK = 4): Promise<ChatResponse> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, topK }),
   });
+  if (res.status === 429) {
+    const data = await res.json().catch(() => ({}));
+    const retry = data?.retryAfterSeconds;
+    throw new Error(
+      data?.error ??
+        (retry ? `Rate limited — retry in ${retry}s.` : "Rate limited."),
+    );
+  }
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Chat request failed (${res.status}): ${text}`);

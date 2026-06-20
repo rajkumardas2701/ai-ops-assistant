@@ -8,6 +8,7 @@ interface Turn {
   text: string;
   citations?: Citation[];
   provider?: string;
+  cached?: boolean;
 }
 
 const SAMPLE_QUESTIONS = [
@@ -55,6 +56,7 @@ export default function Home() {
           text: res.answer,
           citations: res.citations,
           provider: res.provider,
+          cached: res.cached,
         },
       ]);
     } catch (e) {
@@ -126,8 +128,13 @@ export default function Home() {
               )}
 
               {turn.provider && (
-                <p className="mt-2 font-mono text-[10px] opacity-40">
-                  {turn.provider}
+                <p className="mt-2 flex items-center gap-2 font-mono text-[10px] opacity-40">
+                  <span>{turn.provider}</span>
+                  {turn.cached && (
+                    <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 font-medium text-emerald-600 dark:text-emerald-400">
+                      cached
+                    </span>
+                  )}
                 </p>
               )}
             </div>

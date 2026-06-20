@@ -64,10 +64,26 @@ In `api/local.settings.json` set:
 | Tier | Headline | Key changes |
 |------|----------|-------------|
 | 10 | Single team, single region ✅ | In-memory index, local providers, synchronous RAG |
-| 1,000 | Caching + token budgeting | Semantic cache, per-user rate limiting |
+| 1,000 | Caching + token budgeting ✅ | Semantic cache, per-user rate limiting, daily token budget |
 | 100,000 | Multi-tenant isolation | Azure AI Search, Cosmos partitioned by tenantId, async ingestion |
 | 1M | Front Door + autoscale | Premium/Container Apps, WAF, multi-deployment OpenAI router |
 | 10M | Global multi-region | Active-active, Cosmos multi-write, AI gateway (APIM) |
+
+## Stage 2 — reliability & cost (1,000 users)
+Three in-memory mechanisms guard the expensive embedding + LLM path. Each is behind an
+interface so it can later be swapped for a distributed (Redis) implementation:
+
+- **Semantic cache** (`Caching/`) — reuses a previous answer when an incoming question is
+  cosine-similar (≥ threshold) to one already answered. A hit skips retrieval and the LLM
+  entirely and does not draw down the caller's budget.
+- **Per-user rate limiting** (`RateLimiting/`) — a token bucket per caller (`RATE_LIMIT_PER_MINUTE`)
+  sheds excess load with `429` + `Retry-After` (DDIA backpressure).
+- **Daily token budget** (`Budget/`) — caps estimated tokens per caller per UTC day
+  (`DAILY_TOKEN_BUDGET`), resetting at midnight.
+
+The caller is identified by the `X-User-Id` header (falling back to the forwarded client IP).
+Responses carry `X-Cache`, `X-RateLimit-Remaining`, and `X-Budget-Remaining` headers. Because
+this state is in-memory, the API runs as a single replica until a shared store is introduced.
 
 ## Project layout
 ```
