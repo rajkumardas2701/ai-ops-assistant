@@ -1,5 +1,6 @@
-// Typed client for the AI Ops Assistant API. The base URL is injected at build time
-// via NEXT_PUBLIC_API_BASE_URL so the same UI works against local Functions or Azure.
+// Typed client for the AI Ops Assistant API. The browser always calls the Next.js
+// server on the same origin (/api/*); a server-side proxy route forwards to the real
+// API. This keeps the API private (internal ingress) and avoids CORS entirely.
 
 export interface Citation {
   docId: string;
@@ -23,10 +24,8 @@ export interface HealthResponse {
   chatProvider: string;
 }
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:7071";
-
 export async function ask(question: string, topK = 4): Promise<ChatResponse> {
-  const res = await fetch(`${BASE_URL}/api/chat`, {
+  const res = await fetch(`/api/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ question, topK }),
@@ -39,7 +38,7 @@ export async function ask(question: string, topK = 4): Promise<ChatResponse> {
 }
 
 export async function getHealth(): Promise<HealthResponse> {
-  const res = await fetch(`${BASE_URL}/api/health`, { cache: "no-store" });
+  const res = await fetch(`/api/health`, { cache: "no-store" });
   if (!res.ok) throw new Error(`Health check failed (${res.status})`);
   return (await res.json()) as HealthResponse;
 }

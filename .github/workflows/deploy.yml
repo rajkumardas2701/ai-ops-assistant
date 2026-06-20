@@ -1,0 +1,54 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "api/**"
+      - "web/**"
+      - "infra/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  RESOURCE_GROUP: ai-ops-rg
+  ACR_NAME: ${{ vars.ACR_NAME }}
+  API_APP: ai-ops-api
+  WEB_APP: ai-ops-web
+  IMAGE_TAG: ${{ github.sha }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login (OIDC)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # ACR builds the images server-side (no Docker needed on the runner).
+      - name: Build & push API image
+        run: az acr build --registry "$ACR_NAME" --image "ai-ops-api:$IMAGE_TAG" --image "ai-ops-api:latest" ./api
+
+      - name: Build & push Web image
+        run: az acr build --registry "$ACR_NAME" --image "ai-ops-web:$IMAGE_TAG" --image "ai-ops-web:latest" ./web
+
+      - name: Update API container app
+        run: az containerapp update -n "$API_APP" -g "$RESOURCE_GROUP" --image "$ACR_NAME.azurecr.io/ai-ops-api:$IMAGE_TAG"
+
+      - name: Update Web container app
+        run: az containerapp update -n "$WEB_APP" -g "$RESOURCE_GROUP" --image "$ACR_NAME.azurecr.io/ai-ops-web:$IMAGE_TAG"
+
+      - name: Output web URL
+        run: |
+          FQDN=$(az containerapp show -n "$WEB_APP" -g "$RESOURCE_GROUP" --query properties.configuration.ingress.fqdn -o tsv)
+          echo "### Deployed :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          echo "Web: https://$FQDN" >> "$GITHUB_STEP_SUMMARY"
