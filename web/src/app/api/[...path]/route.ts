@@ -26,10 +26,15 @@ async function handler(
   try {
     const res = await fetch(target, init);
     const body = await res.text();
-    return new Response(body, {
-      status: res.status,
-      headers: { "content-type": res.headers.get("content-type") ?? "application/json" },
+    const headers = new Headers({
+      "content-type": res.headers.get("content-type") ?? "application/json",
     });
+    // Pass through observability headers from the API (cache/rate-limit/budget signals).
+    for (const h of ["x-cache", "x-ratelimit-remaining", "x-budget-remaining", "retry-after"]) {
+      const v = res.headers.get(h);
+      if (v) headers.set(h, v);
+    }
+    return new Response(body, { status: res.status, headers });
   } catch {
     return new Response(
       JSON.stringify({ error: "Upstream API unreachable." }),
