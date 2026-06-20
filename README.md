@@ -65,7 +65,7 @@ In `api/local.settings.json` set:
 |------|----------|-------------|
 | 10 | Single team, single region ✅ | In-memory index, local providers, synchronous RAG |
 | 1,000 | Caching + token budgeting ✅ | Semantic cache, per-user rate limiting, daily token budget |
-| 100,000 | Multi-tenant isolation | Azure AI Search, Cosmos partitioned by tenantId, async ingestion |
+| 100,000 | Shared state + multi-tenant isolation | Redis-backed cache/limits ✅, Azure AI Search, Cosmos partitioned by tenantId, async ingestion |
 | 1M | Front Door + autoscale | Premium/Container Apps, WAF, multi-deployment OpenAI router |
 | 10M | Global multi-region | Active-active, Cosmos multi-write, AI gateway (APIM) |
 
@@ -82,8 +82,22 @@ interface so it can later be swapped for a distributed (Redis) implementation:
   (`DAILY_TOKEN_BUDGET`), resetting at midnight.
 
 The caller is identified by the `X-User-Id` header (falling back to the forwarded client IP).
-Responses carry `X-Cache`, `X-RateLimit-Remaining`, and `X-Budget-Remaining` headers. Because
-this state is in-memory, the API runs as a single replica until a shared store is introduced.
+Responses carry `X-Cache`, `X-RateLimit-Remaining`, and `X-Budget-Remaining` headers.
+
+## Stage 3-B — shared state (scale-out)
+The three mechanisms above are now selectable between an in-memory backend (per-replica) and a
+shared **Redis** backend via the `STATE_STORE` env var (`memory` default, or `redis` with a
+`REDIS_CONNECTION` string) — same interfaces, no call-site changes:
+
+- **Rate limiter** — an atomic Lua token-bucket in Redis, so per-user limits stay correct even
+  when requests land on different replicas. This is the correctness fix that lets the API scale out.
+- **Token budget** — an atomic `INCRBY` counter under a per-day key that expires at UTC midnight.
+- **Semantic cache** — keyed on the normalized question text (exact match) in Redis; true vector
+  similarity in Redis needs RediSearch (Azure Managed Redis / Enterprise) and is a future upgrade.
+
+Redis itself runs as a single internal (TCP, non-public) Container App in the same environment, so
+the API now scales to **1–3 replicas** (`infra/main.bicep`). For production, swap the self-hosted
+Redis for Azure Managed Redis.
 
 ## Project layout
 ```
