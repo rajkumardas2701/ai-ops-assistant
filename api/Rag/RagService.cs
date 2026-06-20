@@ -19,7 +19,7 @@ public sealed class RagService(IEmbeddingProvider embeddings, IChatProvider chat
     {
         var queryVector = await embeddings.EmbedAsync(question, ct);
 
-        if (cache.TryGet(queryVector, out var cached) && cached is not null)
+        if (cache.TryGet(question, queryVector, out var cached) && cached is not null)
             return cached with { Cached = true };
 
         var hits = store.Search(queryVector, topK);
@@ -43,7 +43,7 @@ public sealed class RagService(IEmbeddingProvider embeddings, IChatProvider chat
         var response = new ChatResponse(
             answer, citations, $"{embeddings.Name}+{chat.Name}", context.Count, Cached: false, TokensEstimated: tokens);
 
-        cache.Set(queryVector, response);
+        cache.Set(question, queryVector, response);
         return response;
     }
 

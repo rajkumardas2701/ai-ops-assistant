@@ -26,7 +26,7 @@ public sealed class InMemorySemanticCache(IOptions<ServiceLimitsOptions> options
         get { lock (_lock) return _entries.Count; }
     }
 
-    public bool TryGet(float[] queryVector, out ChatResponse? response)
+    public bool TryGet(string question, float[] queryVector, out ChatResponse? response)
     {
         response = null;
         var now = DateTimeOffset.UtcNow;
@@ -57,7 +57,7 @@ public sealed class InMemorySemanticCache(IOptions<ServiceLimitsOptions> options
         return false;
     }
 
-    public void Set(float[] queryVector, ChatResponse response)
+    public void Set(string question, float[] queryVector, ChatResponse response)
     {
         var entry = new Entry(queryVector, response, DateTimeOffset.UtcNow.AddMinutes(_opt.CacheTtlMinutes));
         lock (_lock)

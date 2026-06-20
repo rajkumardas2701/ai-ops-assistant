@@ -15,6 +15,7 @@ var acrName = '${namePrefix}acr${token}'
 var storageName = '${namePrefix}st${token}'
 var apiAppName = 'ai-ops-api'
 var webAppName = 'ai-ops-web'
+var redisAppName = 'ai-ops-redis'
 var acrPullRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
 
 resource logAnalytics 'Microsoft.OperationalInsights/workspaces@2023-09-01' = {
@@ -88,6 +89,45 @@ resource caEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
 
 var storageConnString = 'DefaultEndpointsProtocol=https;AccountName=${storage.name};EndpointSuffix=${environment().suffixes.storage};AccountKey=${storage.listKeys().keys[0].value}'
 
+// Self-hosted Redis on Container Apps: a single internal (TCP, not internet-exposed) replica that
+// acts as the shared store for the semantic cache, rate limiter, and token budget. This keeps cost
+// near zero and stays in-environment; the managed alternative is Azure Managed Redis. No password is
+// set because the endpoint is only reachable from inside the Container Apps environment.
+resource redisApp 'Microsoft.App/containerApps@2024-03-01' = {
+  name: redisAppName
+  location: location
+  properties: {
+    managedEnvironmentId: caEnv.id
+    configuration: {
+      activeRevisionsMode: 'Single'
+      ingress: {
+        external: false
+        targetPort: 6379
+        exposedPort: 6379
+        transport: 'tcp'
+      }
+    }
+    template: {
+      containers: [
+        {
+          name: 'redis'
+          image: 'redis:7-alpine'
+          resources: {
+            cpu: json('0.25')
+            memory: '0.5Gi'
+          }
+        }
+      ]
+      scale: {
+        minReplicas: 1
+        maxReplicas: 1
+      }
+    }
+  }
+}
+
+var redisConnString = '${redisAppName}:6379,abortConnect=False'
+
 // API: Azure Functions container, internal ingress only (not exposed to the internet).
 resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
   name: apiAppName
@@ -135,14 +175,16 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'RATE_LIMIT_PER_MINUTE', value: '20' }
             { name: 'DAILY_TOKEN_BUDGET', value: '100000' }
             { name: 'CACHE_SIMILARITY_THRESHOLD', value: '0.95' }
+            { name: 'STATE_STORE', value: 'redis' }
+            { name: 'REDIS_CONNECTION', value: redisConnString }
           ]
         }
       ]
       scale: {
-        // Stage 2 state (cache, rate limiter, budget) lives in memory, so the API runs as a
-        // single replica for now. Scaling out requires a shared store (Redis) — a later stage.
+        // State now lives in Redis (shared across replicas), so the API can safely scale out:
+        // rate limits and budgets stay globally consistent regardless of which replica responds.
         minReplicas: 1
-        maxReplicas: 1
+        maxReplicas: 3
       }
     }
   }
@@ -206,3 +248,4 @@ output apiAppName string = apiApp.name
 output webAppName string = webApp.name
 output apiInternalFqdn string = apiApp.properties.configuration.ingress.fqdn
 output webUrl string = 'https://${webApp.properties.configuration.ingress.fqdn}'
+output redisAppName string = redisApp.name

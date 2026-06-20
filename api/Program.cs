@@ -9,6 +9,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using StackExchange.Redis;
 
 var builder = FunctionsApplication.CreateBuilder(args);
 
@@ -57,12 +58,30 @@ builder.Services.Configure<ServiceLimitsOptions>(o =>
     if (int.TryParse(config["DAILY_TOKEN_BUDGET"], out var daily)) o.DailyTokenBudget = daily;
 });
 
-// Semantic cache + per-user rate limiter + daily token budget. Singletons so their in-memory
-// state is shared across all requests on this replica (correct at a single replica; a shared
-// store such as Redis is the multi-replica scale-out path).
-builder.Services.AddSingleton<ISemanticCache, InMemorySemanticCache>();
-builder.Services.AddSingleton<IRateLimiter, TokenBucketRateLimiter>();
-builder.Services.AddSingleton<ITokenBudget, InMemoryTokenBudget>();
+// Semantic cache + per-user rate limiter + daily token budget.
+// STATE_STORE selects where this state lives, behind the same seams:
+//   "memory" (default) — in-memory, per-replica: correct only at a single replica.
+//   "redis"            — Azure Cache for Redis, shared across replicas: lets the API scale out
+//                        while keeping rate limits and budgets globally consistent (Stage 3-B).
+var stateStore = config["STATE_STORE"] ?? "memory";
+if (string.Equals(stateStore, "redis", StringComparison.OrdinalIgnoreCase))
+{
+    var redisConn = config["REDIS_CONNECTION"]
+        ?? throw new InvalidOperationException("STATE_STORE=redis requires a REDIS_CONNECTION connection string.");
+    var redisOptions = ConfigurationOptions.Parse(redisConn);
+    redisOptions.AbortOnConnectFail = false; // connect lazily and reconnect, instead of crashing on boot
+
+    builder.Services.AddSingleton<IConnectionMultiplexer>(_ => ConnectionMultiplexer.Connect(redisOptions));
+    builder.Services.AddSingleton<ISemanticCache, RedisSemanticCache>();
+    builder.Services.AddSingleton<IRateLimiter, RedisRateLimiter>();
+    builder.Services.AddSingleton<ITokenBudget, RedisTokenBudget>();
+}
+else
+{
+    builder.Services.AddSingleton<ISemanticCache, InMemorySemanticCache>();
+    builder.Services.AddSingleton<IRateLimiter, TokenBucketRateLimiter>();
+    builder.Services.AddSingleton<ITokenBudget, InMemoryTokenBudget>();
+}
 
 var host = builder.Build();
 
