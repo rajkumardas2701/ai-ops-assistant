@@ -41,11 +41,19 @@ jobs:
       - name: Build & push Web image
         run: az acr build --registry "$ACR_NAME" --image "ai-ops-web:$IMAGE_TAG" --image "ai-ops-web:latest" ./web
 
-      - name: Update API container app
-        run: az containerapp update -n "$API_APP" -g "$RESOURCE_GROUP" --image "$ACR_NAME.azurecr.io/ai-ops-api:$IMAGE_TAG"
-
-      - name: Update Web container app
-        run: az containerapp update -n "$WEB_APP" -g "$RESOURCE_GROUP" --image "$ACR_NAME.azurecr.io/ai-ops-web:$IMAGE_TAG"
+      # Deploy the Bicep template so infrastructure AND configuration (env vars, scale, RBAC) are
+      # owned by source control. Passing the freshly built image tags means this also rolls out the
+      # new images, replacing the previous image-only `containerapp update` steps. Idempotent: every
+      # resource and role assignment uses a deterministic name, so re-running is a no-op when unchanged.
+      - name: Deploy infrastructure & config (Bicep)
+        run: |
+          az deployment group create \
+            --resource-group "$RESOURCE_GROUP" \
+            --template-file infra/main.bicep \
+            --parameters \
+              apiImage="$ACR_NAME.azurecr.io/ai-ops-api:$IMAGE_TAG" \
+              webImage="$ACR_NAME.azurecr.io/ai-ops-web:$IMAGE_TAG" \
+              deployRoleAssignments=false
 
       - name: Output web URL
         run: |

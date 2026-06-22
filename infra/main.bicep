@@ -13,6 +13,9 @@ param webImage string = 'mcr.microsoft.com/azuredocs/containerapps-helloworld:la
 @description('Region for Azure OpenAI (must support the embedding model; not available in centralindia).')
 param openAiLocation string = 'eastus2'
 
+@description('Create the managed-identity role assignments. Requires a principal with Microsoft.Authorization/roleAssignments/write (Owner/User Access Administrator). The CI pipeline runs as Contributor and sets this false; the assignments are created once during a full manual deploy.')
+param deployRoleAssignments bool = true
+
 var token = uniqueString(resourceGroup().id)
 var acrName = '${namePrefix}acr${token}'
 var storageName = '${namePrefix}st${token}'
@@ -72,7 +75,7 @@ resource uami 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
 }
 
 // Allow the managed identity to pull images from ACR.
-resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
   name: guid(acr.id, uami.id, acrPullRoleId)
   scope: acr
   properties: {
@@ -125,7 +128,7 @@ resource embedding 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01'
 }
 
 // Grant the API's managed identity passwordless access to OpenAI and Search (data + index mgmt).
-resource openAiUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource openAiUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
   name: guid(openAi.id, uami.id, openAiUserRoleId)
   scope: openAi
   properties: {
@@ -135,7 +138,7 @@ resource openAiUser 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource searchContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource searchContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
   name: guid(search.id, uami.id, searchServiceContributorRoleId)
   scope: search
   properties: {
@@ -145,7 +148,7 @@ resource searchContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' 
   }
 }
 
-resource searchDataContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource searchDataContributor 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
   name: guid(search.id, uami.id, searchIndexDataContributorRoleId)
   scope: search
   properties: {
