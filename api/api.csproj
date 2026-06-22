@@ -8,9 +8,6 @@
     <Nullable>enable</Nullable>
     <RootNamespace>AiOps.Api</RootNamespace>
     <AssemblyName>AiOps.Api</AssemblyName>
-    <!-- We serialize Cosmos items with System.Text.Json (see CosmosDocumentStore), so the
-         SDK's Newtonsoft.Json reference check is intentionally bypassed. -->
-    <AzureCosmosDisableNewtonsoftJsonCheck>true</AzureCosmosDisableNewtonsoftJsonCheck>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,6 +21,9 @@
     <PackageReference Include="Microsoft.Azure.Functions.Worker.ApplicationInsights" Version="2.50.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Extensions.Http.AspNetCore" Version="2.1.0" />
     <PackageReference Include="Microsoft.Azure.Functions.Worker.Sdk" Version="2.0.7" />
+    <!-- Required at runtime by the Cosmos SDK's DocumentClient even though we serialize items
+         with System.Text.Json (see CosmosDocumentStore). -->
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="StackExchange.Redis" Version="2.8.16" />
   </ItemGroup>
 
