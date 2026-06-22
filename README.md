@@ -65,7 +65,7 @@ In `api/local.settings.json` set:
 |------|----------|-------------|
 | 10 | Single team, single region ✅ | In-memory index, local providers, synchronous RAG |
 | 1,000 | Caching + token budgeting ✅ | Semantic cache, per-user rate limiting, daily token budget |
-| 100,000 | Shared state + multi-tenant isolation | Redis-backed cache/limits ✅, Azure AI Search ✅, real Azure OpenAI embeddings ✅, Cosmos partitioned by tenantId, async ingestion |
+| 100,000 | Shared state + multi-tenant isolation | Redis-backed cache/limits ✅, Azure AI Search ✅, real Azure OpenAI embeddings ✅, Cosmos partitioned by tenantId ✅, async ingestion |
 | 1M | Front Door + autoscale | Premium/Container Apps, WAF, multi-deployment OpenAI router |
 | 10M | Global multi-region | Active-active, Cosmos multi-write, AI gateway (APIM) |
 
@@ -116,6 +116,25 @@ All access is passwordless: the API's user-assigned managed identity holds *Cogn
 OpenAI User* on the OpenAI account and *Search Service/Index Data Contributor* on the search service
 (`DefaultAzureCredential` resolves it via `AZURE_CLIENT_ID`). Azure OpenAI is provisioned in
 `eastus2` because the model SKU isn't offered in the app's primary region.
+
+## Stage C — multi-tenant isolation with Cosmos DB
+Tenants are now first-class. Each request resolves a tenant from the `X-Tenant-Id` header (or a
+`?tenant=` query fallback), defaulting to `default` so the original single-tenant UX is unchanged.
+Isolation is enforced in two layers:
+
+- **System of record** — a new `IDocumentStore` seam backed by **`CosmosDocumentStore`**. Documents
+  live in a single Cosmos container partitioned by **`/tenantId`**, so every read/write targets one
+  logical partition and tenants never share data. Selected via `DOCUMENT_STORE` (`memory` default,
+  or `cosmos` with `COSMOS_ENDPOINT` / `COSMOS_DATABASE` / `COSMOS_CONTAINER`).
+- **Derived index** — the Azure AI Search index gains a filterable `tenantId` field, and vector
+  (KNN) retrieval is **hard-filtered** to the caller's tenant. The semantic cache is also keyed by
+  tenant, so one tenant can never be served another's cached answer.
+
+Ingestion seeds one tenant per corpus folder: `api/data/runbooks` → the shared `default` tenant, and
+`api/data/tenants/<tenantId>` → one folder per additional tenant (the demo ships an `acme` tenant).
+`GET /api/documents` lists the calling tenant's documents straight from Cosmos. Access is passwordless:
+the app's managed identity holds the **Cosmos DB Built-in Data Contributor** data-plane role; local
+auth on the account is disabled. `scripts/verify-tenant-isolation.ps1` proves the boundary live.
 
 ## Project layout
 ```
