@@ -65,7 +65,7 @@ In `api/local.settings.json` set:
 |------|----------|-------------|
 | 10 | Single team, single region ✅ | In-memory index, local providers, synchronous RAG |
 | 1,000 | Caching + token budgeting ✅ | Semantic cache, per-user rate limiting, daily token budget |
-| 100,000 | Shared state + multi-tenant isolation | Redis-backed cache/limits ✅, Azure AI Search, Cosmos partitioned by tenantId, async ingestion |
+| 100,000 | Shared state + multi-tenant isolation | Redis-backed cache/limits ✅, Azure AI Search ✅, real Azure OpenAI embeddings ✅, Cosmos partitioned by tenantId, async ingestion |
 | 1M | Front Door + autoscale | Premium/Container Apps, WAF, multi-deployment OpenAI router |
 | 10M | Global multi-region | Active-active, Cosmos multi-write, AI gateway (APIM) |
 
@@ -98,6 +98,24 @@ shared **Redis** backend via the `STATE_STORE` env var (`memory` default, or `re
 Redis itself runs as a single internal (TCP, non-public) Container App in the same environment, so
 the API now scales to **1–3 replicas** (`infra/main.bicep`). For production, swap the self-hosted
 Redis for Azure Managed Redis.
+
+## Stage A — durable vector store + real embeddings (ADR-001)
+The brute-force `InMemoryVectorStore` (O(n), single-node) is now one implementation behind a new
+`IVectorStore` seam. The production path is **`AzureAISearchVectorStore`**, which holds the corpus
+in an HNSW vector index in **Azure AI Search** — durable, shared across replicas, and sub-linear at
+query time. Selected via the `VECTOR_STORE` env var (`memory` default, or `azuresearch` with a
+`SEARCH_ENDPOINT`); the index name comes from `SEARCH_INDEX` (default `runbooks`).
+
+Embedding and chat providers are now **decoupled** (`EMBEDDING_PROVIDER` / `CHAT_PROVIDER`), so each
+stage can adopt managed services independently. Stage A flips embeddings to real
+**Azure OpenAI `text-embedding-3-small`** (1536-dim) while chat stays local-extractive — retrieval
+quality improves without an LLM bill. `IEmbeddingProvider` exposes `Dimensions`, which the Search
+index is created from, so the vector schema always matches the embedder.
+
+All access is passwordless: the API's user-assigned managed identity holds *Cognitive Services
+OpenAI User* on the OpenAI account and *Search Service/Index Data Contributor* on the search service
+(`DefaultAzureCredential` resolves it via `AZURE_CLIENT_ID`). Azure OpenAI is provisioned in
+`eastus2` because the model SKU isn't offered in the app's primary region.
 
 ## Project layout
 ```
