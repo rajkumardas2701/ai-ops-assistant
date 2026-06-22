@@ -19,6 +19,11 @@ async function handler(
     headers: { "content-type": req.headers.get("content-type") ?? "application/json" },
     cache: "no-store",
   };
+  // Forward identity/tenant routing headers so per-user limits and per-tenant isolation work.
+  for (const h of ["x-tenant-id", "x-user-id"]) {
+    const v = req.headers.get(h);
+    if (v) (init.headers as Record<string, string>)[h] = v;
+  }
   if (req.method !== "GET" && req.method !== "HEAD") {
     init.body = await req.text();
   }
