@@ -66,6 +66,24 @@ else
     builder.Services.AddSingleton<IVectorStore, InMemoryVectorStore>();
 }
 
+// DOCUMENT_STORE selects the system-of-record behind the IDocumentStore seam (Stage C):
+//   "memory" (default) — in-process, per-replica: fine for local dev / tests.
+//   "cosmos"           — Azure Cosmos DB, partitioned by /tenantId: durable and isolated per tenant.
+var documentStore = config["DOCUMENT_STORE"] ?? "memory";
+if (string.Equals(documentStore, "cosmos", StringComparison.OrdinalIgnoreCase))
+{
+    var cosmosEndpoint = config["COSMOS_ENDPOINT"]
+        ?? throw new InvalidOperationException("DOCUMENT_STORE=cosmos requires COSMOS_ENDPOINT.");
+    var cosmosDatabase = config["COSMOS_DATABASE"] ?? "aiops";
+    var cosmosContainer = config["COSMOS_CONTAINER"] ?? "documents";
+    builder.Services.AddSingleton<IDocumentStore>(_ =>
+        new CosmosDocumentStore(cosmosEndpoint, cosmosDatabase, cosmosContainer));
+}
+else
+{
+    builder.Services.AddSingleton<IDocumentStore, InMemoryDocumentStore>();
+}
+
 builder.Services.AddSingleton<CorpusLoader>();
 builder.Services.AddSingleton<RagService>();
 

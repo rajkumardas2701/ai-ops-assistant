@@ -15,14 +15,14 @@ namespace AiOps.Api.Rag;
 /// </summary>
 public sealed class RagService(IEmbeddingProvider embeddings, IChatProvider chat, IVectorStore store, ISemanticCache cache)
 {
-    public async Task<ChatResponse> AskAsync(string question, int topK, CancellationToken ct = default)
+    public async Task<ChatResponse> AskAsync(string question, int topK, string tenantId, CancellationToken ct = default)
     {
         var queryVector = await embeddings.EmbedAsync(question, ct);
 
-        if (cache.TryGet(question, queryVector, out var cached) && cached is not null)
+        if (cache.TryGet(tenantId, question, queryVector, out var cached) && cached is not null)
             return cached with { Cached = true };
 
-        var hits = await store.SearchAsync(queryVector, topK, ct);
+        var hits = await store.SearchAsync(queryVector, topK, tenantId, ct);
         var context = hits.Select(h => h.Chunk).ToList();
 
         var answer = await chat.CompleteAsync(question, context, ct);
@@ -43,7 +43,7 @@ public sealed class RagService(IEmbeddingProvider embeddings, IChatProvider chat
         var response = new ChatResponse(
             answer, citations, $"{embeddings.Name}+{chat.Name}", context.Count, Cached: false, TokensEstimated: tokens);
 
-        cache.Set(question, queryVector, response);
+        cache.Set(tenantId, question, queryVector, response);
         return response;
     }
 

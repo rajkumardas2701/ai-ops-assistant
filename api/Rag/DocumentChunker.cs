@@ -12,7 +12,7 @@ namespace AiOps.Api.Rag;
 public static class DocumentChunker
 {
     public static IReadOnlyList<DocumentChunk> Chunk(
-        string docId, string title, string source, string text, int maxChars = 800, int overlap = 100)
+        string tenantId, string docId, string title, string source, string text, int maxChars = 800, int overlap = 100)
     {
         var chunks = new List<DocumentChunk>();
         // Normalize line endings so paragraph splitting works regardless of OS (\r\n vs \n).
@@ -26,7 +26,8 @@ public static class DocumentChunker
             if (buffer.Length == 0) return;
             chunks.Add(new DocumentChunk
             {
-                Id = $"{docId}::{idx}",
+                Id = $"{tenantId}::{docId}::{idx}",
+                TenantId = tenantId,
                 DocId = docId,
                 Title = title,
                 Source = source,

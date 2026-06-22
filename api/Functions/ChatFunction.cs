@@ -39,6 +39,8 @@ public sealed class ChatFunction(RagService rag, IRateLimiter limiter, ITokenBud
             return new BadRequestObjectResult(new { error = "'question' is required." });
 
         var userId = ResolveUser(req);
+        var tenantId = TenantResolver.Resolve(req);
+        req.HttpContext.Response.Headers["X-Tenant-Id"] = tenantId;
 
         // Backpressure: shed load per user before touching the expensive downstream.
         var rate = limiter.TryAcquire(userId);
@@ -65,9 +67,9 @@ public sealed class ChatFunction(RagService rag, IRateLimiter limiter, ITokenBud
         }
 
         var topK = Math.Clamp(body.TopK ?? 4, 1, 10);
-        logger.LogInformation("Chat question (topK={TopK}) from {User}: {Question}", topK, userId, body.Question);
+        logger.LogInformation("Chat question (topK={TopK}) from {User} in tenant {Tenant}: {Question}", topK, userId, tenantId, body.Question);
 
-        var result = await rag.AskAsync(body.Question, topK, req.HttpContext.RequestAborted);
+        var result = await rag.AskAsync(body.Question, topK, tenantId, req.HttpContext.RequestAborted);
 
         // Cache hits cost nothing, so they do not draw down the user's budget.
         if (!result.Cached)

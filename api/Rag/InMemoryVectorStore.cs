@@ -15,9 +15,12 @@ public sealed class InMemoryVectorStore : IVectorStore
 
     public string Name => "in-memory";
 
-    public Task<int> CountAsync(CancellationToken ct = default)
+    public Task<int> CountAsync(string? tenantId = null, CancellationToken ct = default)
     {
-        lock (_lock) return Task.FromResult(_chunks.Count);
+        lock (_lock)
+            return Task.FromResult(tenantId is null
+                ? _chunks.Count
+                : _chunks.Count(c => c.TenantId == tenantId));
     }
 
     public Task ClearAsync(CancellationToken ct = default)
@@ -32,11 +35,12 @@ public sealed class InMemoryVectorStore : IVectorStore
         return Task.CompletedTask;
     }
 
-    public Task<IReadOnlyList<SearchHit>> SearchAsync(float[] query, int topK, CancellationToken ct = default)
+    public Task<IReadOnlyList<SearchHit>> SearchAsync(float[] query, int topK, string tenantId, CancellationToken ct = default)
     {
         lock (_lock)
         {
             IReadOnlyList<SearchHit> hits = _chunks
+                .Where(c => c.TenantId == tenantId)
                 .Select(c => new SearchHit(c, Cosine(query, c.Embedding)))
                 .OrderByDescending(h => h.Score)
                 .Take(topK)

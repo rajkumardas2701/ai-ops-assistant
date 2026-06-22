@@ -19,11 +19,27 @@ public record ChatResponse(
 public sealed record DocumentChunk
 {
     public required string Id { get; init; }
+    /// <summary>Owning tenant — every chunk is isolated to one tenant (Stage C).</summary>
+    public required string TenantId { get; init; }
     public required string DocId { get; init; }
     public required string Title { get; init; }
     public required string Source { get; init; }
     public required string Content { get; init; }
     public float[] Embedding { get; set; } = [];
+}
+
+/// <summary>
+/// A source document in the system-of-record (Cosmos), partitioned by <see cref="TenantId"/>.
+/// This is the authoritative copy; <see cref="DocumentChunk"/>s are the derived, indexed form.
+/// </summary>
+public sealed record SourceDocument
+{
+    public required string Id { get; init; }
+    public required string TenantId { get; init; }
+    public required string DocId { get; init; }
+    public required string Title { get; init; }
+    public required string Source { get; init; }
+    public required string Content { get; init; }
 }
 
 /// <summary>A retrieval result: a chunk and its similarity score to the query.</summary>

@@ -26,27 +26,27 @@ public sealed class RedisSemanticCache(IConnectionMultiplexer redis, IOptions<Se
     // Live entry count is not cheaply available in Redis (would need a SCAN). -1 signals "distributed".
     public int Count => -1;
 
-    public bool TryGet(string question, float[] queryVector, out ChatResponse? response)
+    public bool TryGet(string tenantId, string question, float[] queryVector, out ChatResponse? response)
     {
         response = null;
-        var value = _db.StringGet(Key(question));
+        var value = _db.StringGet(Key(tenantId, question));
         if (value.IsNullOrEmpty) return false;
 
         response = JsonSerializer.Deserialize<ChatResponse>(value!, Json);
         return response is not null;
     }
 
-    public void Set(string question, float[] queryVector, ChatResponse response)
+    public void Set(string tenantId, string question, float[] queryVector, ChatResponse response)
     {
         var payload = JsonSerializer.Serialize(response, Json);
-        _db.StringSet(Key(question), payload, TimeSpan.FromMinutes(_opt.CacheTtlMinutes));
+        _db.StringSet(Key(tenantId, question), payload, TimeSpan.FromMinutes(_opt.CacheTtlMinutes));
     }
 
-    private static string Key(string question)
+    private static string Key(string tenantId, string question)
     {
         var normalized = string.Join(' ', question.ToLowerInvariant()
             .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
-        return $"cache:{Convert.ToHexString(hash)}";
+        return $"cache:{tenantId}:{Convert.ToHexString(hash)}";
     }
 }

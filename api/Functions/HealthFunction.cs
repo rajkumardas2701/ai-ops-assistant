@@ -11,6 +11,7 @@ namespace AiOps.Api.Functions;
 /// <summary>GET /api/health — liveness plus current index size, active providers, and Stage 2 limits.</summary>
 public sealed class HealthFunction(
     IVectorStore store,
+    IDocumentStore documents,
     IEmbeddingProvider embeddings,
     IChatProvider chat,
     ISemanticCache cache,
@@ -22,8 +23,9 @@ public sealed class HealthFunction(
         => new OkObjectResult(new
         {
             status = "ok",
-            indexedChunks = await store.CountAsync(req.HttpContext.RequestAborted),
+            indexedChunks = await store.CountAsync(ct: req.HttpContext.RequestAborted),
             vectorStore = store.Name,
+            documentStore = documents.Name,
             embeddingProvider = embeddings.Name,
             chatProvider = chat.Name,
             cachedAnswers = cache.Count,

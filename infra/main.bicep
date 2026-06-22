@@ -24,6 +24,9 @@ var webAppName = 'ai-ops-web'
 var redisAppName = 'ai-ops-redis'
 var searchName = '${namePrefix}-search-${token}'
 var openAiName = '${namePrefix}-openai-${token}'
+var cosmosName = '${namePrefix}-cosmos-${token}'
+var cosmosDatabaseName = 'aiops'
+var cosmosContainerName = 'documents'
 var embeddingDeployment = 'text-embedding-3-small'
 var acrPullRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '7f951dda-4ed3-4680-a7ca-43fe172d538d')
 var openAiUserRoleId = subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd')
@@ -158,6 +161,73 @@ resource searchDataContributor 'Microsoft.Authorization/roleAssignments@2022-04-
   }
 }
 
+// Azure Cosmos DB: the multi-tenant system-of-record (Stage C). Serverless to keep cost near zero;
+// a single container partitioned by /tenantId so each tenant's documents live in their own logical
+// partition. Local auth is disabled — access is passwordless via the managed identity only.
+resource cosmos 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' = {
+  name: cosmosName
+  location: location
+  kind: 'GlobalDocumentDB'
+  properties: {
+    databaseAccountOfferType: 'Standard'
+    disableLocalAuth: true
+    consistencyPolicy: {
+      defaultConsistencyLevel: 'Session'
+    }
+    locations: [
+      {
+        locationName: location
+        failoverPriority: 0
+        isZoneRedundant: false
+      }
+    ]
+    capabilities: [
+      {
+        name: 'EnableServerless'
+      }
+    ]
+  }
+}
+
+resource cosmosDatabase 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases@2024-11-15' = {
+  parent: cosmos
+  name: cosmosDatabaseName
+  properties: {
+    resource: {
+      id: cosmosDatabaseName
+    }
+  }
+}
+
+resource cosmosContainer 'Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers@2024-11-15' = {
+  parent: cosmosDatabase
+  name: cosmosContainerName
+  properties: {
+    resource: {
+      id: cosmosContainerName
+      partitionKey: {
+        paths: [
+          '/tenantId'
+        ]
+        kind: 'Hash'
+      }
+    }
+  }
+}
+
+// Data-plane RBAC: grant the API's managed identity the built-in Cosmos DB Data Contributor role.
+// This is a Microsoft.DocumentDB role assignment (NOT Microsoft.Authorization), so the Contributor
+// CI principal can create it — it is intentionally not gated behind deployRoleAssignments.
+resource cosmosDataContributor 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = {
+  parent: cosmos
+  name: guid(cosmos.id, uami.id, '00000000-0000-0000-0000-000000000002')
+  properties: {
+    roleDefinitionId: '${cosmos.id}/sqlRoleDefinitions/00000000-0000-0000-0000-000000000002'
+    principalId: uami.properties.principalId
+    scope: cosmos.id
+  }
+}
+
 resource caEnv 'Microsoft.App/managedEnvironments@2024-03-01' = {
   name: '${namePrefix}-env'
   location: location
@@ -264,10 +334,14 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'REDIS_CONNECTION', value: redisConnString }
             { name: 'VECTOR_STORE', value: 'azuresearch' }
             { name: 'SEARCH_ENDPOINT', value: 'https://${search.name}.search.windows.net' }
-            { name: 'SEARCH_INDEX', value: 'runbooks' }
+            { name: 'SEARCH_INDEX', value: 'runbooks-v2' }
             { name: 'EMBEDDING_PROVIDER', value: 'azureopenai' }
             { name: 'AZURE_OPENAI_ENDPOINT', value: openAi.properties.endpoint }
             { name: 'AZURE_OPENAI_EMBEDDING_DEPLOYMENT', value: embeddingDeployment }
+            { name: 'DOCUMENT_STORE', value: 'cosmos' }
+            { name: 'COSMOS_ENDPOINT', value: cosmos.properties.documentEndpoint }
+            { name: 'COSMOS_DATABASE', value: cosmosDatabaseName }
+            { name: 'COSMOS_CONTAINER', value: cosmosContainerName }
             { name: 'AZURE_CLIENT_ID', value: uami.properties.clientId }
           ]
         }
@@ -286,6 +360,8 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
     searchContributor
     searchDataContributor
     embedding
+    cosmosContainer
+    cosmosDataContributor
   ]
 }
 
@@ -347,3 +423,5 @@ output webUrl string = 'https://${webApp.properties.configuration.ingress.fqdn}'
 output redisAppName string = redisApp.name
 output searchName string = search.name
 output openAiName string = openAi.name
+output cosmosName string = cosmos.name
+output cosmosEndpoint string = cosmos.properties.documentEndpoint

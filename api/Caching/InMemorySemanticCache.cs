@@ -15,7 +15,7 @@ namespace AiOps.Api.Caching;
 /// </summary>
 public sealed class InMemorySemanticCache(IOptions<ServiceLimitsOptions> options) : ISemanticCache
 {
-    private sealed record Entry(float[] Vector, ChatResponse Response, DateTimeOffset ExpiresAt);
+    private sealed record Entry(string TenantId, float[] Vector, ChatResponse Response, DateTimeOffset ExpiresAt);
 
     private readonly List<Entry> _entries = [];
     private readonly Lock _lock = new();
@@ -26,7 +26,7 @@ public sealed class InMemorySemanticCache(IOptions<ServiceLimitsOptions> options
         get { lock (_lock) return _entries.Count; }
     }
 
-    public bool TryGet(string question, float[] queryVector, out ChatResponse? response)
+    public bool TryGet(string tenantId, string question, float[] queryVector, out ChatResponse? response)
     {
         response = null;
         var now = DateTimeOffset.UtcNow;
@@ -39,6 +39,8 @@ public sealed class InMemorySemanticCache(IOptions<ServiceLimitsOptions> options
             Entry? hit = null;
             foreach (var e in _entries)
             {
+                // Only ever match within the same tenant — no cross-tenant cache hits.
+                if (e.TenantId != tenantId) continue;
                 var sim = VectorMath.Cosine(queryVector, e.Vector);
                 if (sim > best)
                 {
@@ -57,9 +59,9 @@ public sealed class InMemorySemanticCache(IOptions<ServiceLimitsOptions> options
         return false;
     }
 
-    public void Set(string question, float[] queryVector, ChatResponse response)
+    public void Set(string tenantId, string question, float[] queryVector, ChatResponse response)
     {
-        var entry = new Entry(queryVector, response, DateTimeOffset.UtcNow.AddMinutes(_opt.CacheTtlMinutes));
+        var entry = new Entry(tenantId, queryVector, response, DateTimeOffset.UtcNow.AddMinutes(_opt.CacheTtlMinutes));
         lock (_lock)
         {
             _entries.Add(entry);

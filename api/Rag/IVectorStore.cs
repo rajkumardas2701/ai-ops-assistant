@@ -12,15 +12,15 @@ public interface IVectorStore
     /// <summary>Identifies the active implementation (for diagnostics / health).</summary>
     string Name { get; }
 
-    /// <summary>Number of indexed chunks (best-effort for remote stores).</summary>
-    Task<int> CountAsync(CancellationToken ct = default);
+    /// <summary>Number of indexed chunks (best-effort for remote stores). Scoped to one tenant when supplied.</summary>
+    Task<int> CountAsync(string? tenantId = null, CancellationToken ct = default);
 
     /// <summary>Removes all indexed chunks (used before a full re-ingest).</summary>
     Task ClearAsync(CancellationToken ct = default);
 
-    /// <summary>Adds (or upserts) chunks with their embeddings.</summary>
+    /// <summary>Adds (or upserts) chunks with their embeddings. Each chunk carries its own tenant.</summary>
     Task AddAsync(IReadOnlyList<DocumentChunk> chunks, CancellationToken ct = default);
 
-    /// <summary>Returns the top-K nearest chunks to the query embedding.</summary>
-    Task<IReadOnlyList<SearchHit>> SearchAsync(float[] query, int topK, CancellationToken ct = default);
+    /// <summary>Returns the top-K nearest chunks to the query embedding, isolated to <paramref name="tenantId"/>.</summary>
+    Task<IReadOnlyList<SearchHit>> SearchAsync(float[] query, int topK, string tenantId, CancellationToken ct = default);
 }

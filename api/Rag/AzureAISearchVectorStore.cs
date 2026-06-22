@@ -44,12 +44,20 @@ public sealed partial class AzureAISearchVectorStore : IVectorStore
         _logger = logger;
     }
 
-    public async Task<int> CountAsync(CancellationToken ct = default)
+    public async Task<int> CountAsync(string? tenantId = null, CancellationToken ct = default)
     {
         try
         {
-            var resp = await _searchClient.GetDocumentCountAsync(ct);
-            return (int)resp.Value;
+            if (tenantId is null)
+            {
+                var resp = await _searchClient.GetDocumentCountAsync(ct);
+                return (int)resp.Value;
+            }
+
+            // Scoped count: a filtered search with Size=0 returns just the total matching count.
+            var options = new SearchOptions { Size = 0, IncludeTotalCount = true, Filter = TenantFilter(tenantId) };
+            var results = (await _searchClient.SearchAsync<SearchDocument>("*", options, ct)).Value;
+            return (int)(results.TotalCount ?? 0);
         }
         catch (RequestFailedException ex) when (ex.Status == 404)
         {
@@ -79,6 +87,7 @@ public sealed partial class AzureAISearchVectorStore : IVectorStore
         var docs = chunks.Select(c => new SearchDocument
         {
             ["id"] = SanitizeKey(c.Id),
+            ["tenantId"] = c.TenantId,
             ["docId"] = c.DocId,
             ["title"] = c.Title,
             ["source"] = c.Source,
@@ -89,11 +98,13 @@ public sealed partial class AzureAISearchVectorStore : IVectorStore
         await _searchClient.MergeOrUploadDocumentsAsync(docs, cancellationToken: ct);
     }
 
-    public async Task<IReadOnlyList<SearchHit>> SearchAsync(float[] query, int topK, CancellationToken ct = default)
+    public async Task<IReadOnlyList<SearchHit>> SearchAsync(float[] query, int topK, string tenantId, CancellationToken ct = default)
     {
         var options = new SearchOptions
         {
             Size = topK,
+            // Hard tenant isolation: KNN is restricted to this tenant's documents only.
+            Filter = TenantFilter(tenantId),
             VectorSearch = new VectorSearchOptions
             {
                 Queries = { new VectorizedQuery(query) { KNearestNeighborsCount = topK, Fields = { VectorField } } },
@@ -117,6 +128,7 @@ public sealed partial class AzureAISearchVectorStore : IVectorStore
             var chunk = new DocumentChunk
             {
                 Id = d.GetString("id") ?? "",
+                TenantId = d.GetString("tenantId") ?? tenantId,
                 DocId = d.GetString("docId") ?? "",
                 Title = d.GetString("title") ?? "",
                 Source = d.GetString("source") ?? "",
@@ -126,6 +138,9 @@ public sealed partial class AzureAISearchVectorStore : IVectorStore
         }
         return hits;
     }
+
+    // OData equality filter on the tenant field; single quotes are escaped per OData rules.
+    private static string TenantFilter(string tenantId) => $"tenantId eq '{tenantId.Replace("'", "''")}'";
 
     private async Task EnsureIndexAsync(CancellationToken ct)
     {
@@ -146,6 +161,7 @@ public sealed partial class AzureAISearchVectorStore : IVectorStore
             Fields =
             {
                 new SimpleField("id", SearchFieldDataType.String) { IsKey = true },
+                new SimpleField("tenantId", SearchFieldDataType.String) { IsFilterable = true },
                 new SimpleField("docId", SearchFieldDataType.String) { IsFilterable = true },
                 new SearchableField("title"),
                 new SimpleField("source", SearchFieldDataType.String) { IsFilterable = true },
