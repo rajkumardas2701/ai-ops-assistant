@@ -10,7 +10,8 @@ namespace AiOps.Api.Rag;
 /// </summary>
 public sealed class LocalEmbeddingProvider : IEmbeddingProvider
 {
-    public const int Dimensions = 384;
+    private const int Dim = 384;
+    public int Dimensions => Dim;
     public string Name => "local-hash";
 
     public Task<float[]> EmbedAsync(string text, CancellationToken ct = default)
@@ -21,11 +22,11 @@ public sealed class LocalEmbeddingProvider : IEmbeddingProvider
 
     private static float[] Embed(string text)
     {
-        var vec = new float[Dimensions];
+        var vec = new float[Dim];
         foreach (var token in Tokenize(text))
         {
             var h = Fnv1a(token);
-            var idx = (int)(h % Dimensions);
+            var idx = (int)(h % Dim);
             var sign = ((h >> 31) & 1) == 0 ? 1f : -1f; // signed hashing reduces collision bias
             vec[idx] += sign;
         }

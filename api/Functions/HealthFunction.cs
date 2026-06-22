@@ -10,19 +10,20 @@ namespace AiOps.Api.Functions;
 
 /// <summary>GET /api/health — liveness plus current index size, active providers, and Stage 2 limits.</summary>
 public sealed class HealthFunction(
-    InMemoryVectorStore store,
+    IVectorStore store,
     IEmbeddingProvider embeddings,
     IChatProvider chat,
     ISemanticCache cache,
     IOptions<ServiceLimitsOptions> limits)
 {
     [Function("health")]
-    public IActionResult Run(
+    public async Task<IActionResult> Run(
         [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "health")] HttpRequest req)
         => new OkObjectResult(new
         {
             status = "ok",
-            indexedChunks = store.Count,
+            indexedChunks = await store.CountAsync(req.HttpContext.RequestAborted),
+            vectorStore = store.Name,
             embeddingProvider = embeddings.Name,
             chatProvider = chat.Name,
             cachedAnswers = cache.Count,

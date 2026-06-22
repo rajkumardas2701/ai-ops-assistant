@@ -16,12 +16,15 @@ public sealed class AzureOpenAIEmbeddingProvider : IEmbeddingProvider
 {
     private readonly EmbeddingClient _client;
     public string Name => "azure-openai-embeddings";
+    public int Dimensions { get; }
 
     public AzureOpenAIEmbeddingProvider(IOptions<AzureOpenAIOptions> options)
     {
         var o = options.Value;
         if (string.IsNullOrWhiteSpace(o.Endpoint))
             throw new InvalidOperationException("AZURE_OPENAI_ENDPOINT is required when AI_PROVIDER=azureopenai.");
+
+        Dimensions = o.EmbeddingDimensions;
 
         var azure = string.IsNullOrWhiteSpace(o.ApiKey)
             ? new AzureOpenAIClient(new Uri(o.Endpoint), new DefaultAzureCredential())

@@ -11,4 +11,7 @@ public sealed class AzureOpenAIOptions
     public string ChatDeployment { get; set; } = "gpt-4o";
 
     public string EmbeddingDeployment { get; set; } = "text-embedding-3-small";
+
+    /// <summary>Vector size produced by the embedding deployment (text-embedding-3-small = 1536).</summary>
+    public int EmbeddingDimensions { get; set; } = 1536;
 }

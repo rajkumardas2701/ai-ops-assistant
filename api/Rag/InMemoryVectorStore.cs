@@ -6,37 +6,42 @@ namespace AiOps.Api.Rag;
 /// The "index" for Stage 1: an in-memory list scanned with brute-force cosine similarity.
 /// This is deliberately the simplest thing that works so the mechanics of vector retrieval
 /// are visible (DDIA Ch.3). It is O(n) per query and single-node — exactly the limitation
-/// that later stages fix by swapping in Azure AI Search (see ADR-001).
+/// that Stage A fixes by swapping in Azure AI Search (see ADR-001).
 /// </summary>
-public sealed class InMemoryVectorStore
+public sealed class InMemoryVectorStore : IVectorStore
 {
     private readonly List<DocumentChunk> _chunks = [];
     private readonly Lock _lock = new();
 
-    public int Count
+    public string Name => "in-memory";
+
+    public Task<int> CountAsync(CancellationToken ct = default)
     {
-        get { lock (_lock) return _chunks.Count; }
+        lock (_lock) return Task.FromResult(_chunks.Count);
     }
 
-    public void Clear()
+    public Task ClearAsync(CancellationToken ct = default)
     {
         lock (_lock) _chunks.Clear();
+        return Task.CompletedTask;
     }
 
-    public void Add(IEnumerable<DocumentChunk> chunks)
+    public Task AddAsync(IReadOnlyList<DocumentChunk> chunks, CancellationToken ct = default)
     {
         lock (_lock) _chunks.AddRange(chunks);
+        return Task.CompletedTask;
     }
 
-    public IReadOnlyList<SearchHit> Search(float[] query, int topK)
+    public Task<IReadOnlyList<SearchHit>> SearchAsync(float[] query, int topK, CancellationToken ct = default)
     {
         lock (_lock)
         {
-            return _chunks
+            IReadOnlyList<SearchHit> hits = _chunks
                 .Select(c => new SearchHit(c, Cosine(query, c.Embedding)))
                 .OrderByDescending(h => h.Score)
                 .Take(topK)
                 .ToList();
+            return Task.FromResult(hits);
         }
     }
 

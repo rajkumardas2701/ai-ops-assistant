@@ -13,7 +13,7 @@ namespace AiOps.Api.Rag;
 /// enough previous question short-circuits the whole turn (no search, no LLM), which is the
 /// main lever for absorbing repeated load cheaply.
 /// </summary>
-public sealed class RagService(IEmbeddingProvider embeddings, IChatProvider chat, InMemoryVectorStore store, ISemanticCache cache)
+public sealed class RagService(IEmbeddingProvider embeddings, IChatProvider chat, IVectorStore store, ISemanticCache cache)
 {
     public async Task<ChatResponse> AskAsync(string question, int topK, CancellationToken ct = default)
     {
@@ -22,7 +22,7 @@ public sealed class RagService(IEmbeddingProvider embeddings, IChatProvider chat
         if (cache.TryGet(question, queryVector, out var cached) && cached is not null)
             return cached with { Cached = true };
 
-        var hits = store.Search(queryVector, topK);
+        var hits = await store.SearchAsync(queryVector, topK, ct);
         var context = hits.Select(h => h.Chunk).ToList();
 
         var answer = await chat.CompleteAsync(question, context, ct);

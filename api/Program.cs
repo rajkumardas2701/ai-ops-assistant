@@ -21,9 +21,11 @@ builder.Services
 
 var config = builder.Configuration;
 
-// AI_PROVIDER selects the RAG implementations behind the IEmbeddingProvider / IChatProvider
-// seams. Default "local" runs fully offline at $0; "azureopenai" uses real models.
+// AI_PROVIDER is the default for both seams; EMBEDDING_PROVIDER / CHAT_PROVIDER can override each
+// independently (e.g. real Azure OpenAI embeddings while chat stays local/extractive). Values: "local" | "azureopenai".
 var provider = config["AI_PROVIDER"] ?? "local";
+var embeddingProvider = config["EMBEDDING_PROVIDER"] ?? provider;
+var chatProvider = config["CHAT_PROVIDER"] ?? provider;
 
 builder.Services.Configure<AzureOpenAIOptions>(o =>
 {
@@ -31,20 +33,39 @@ builder.Services.Configure<AzureOpenAIOptions>(o =>
     o.ApiKey = config["AZURE_OPENAI_KEY"] ?? "";
     o.ChatDeployment = config["AZURE_OPENAI_CHAT_DEPLOYMENT"] ?? "gpt-4o";
     o.EmbeddingDeployment = config["AZURE_OPENAI_EMBEDDING_DEPLOYMENT"] ?? "text-embedding-3-small";
+    if (int.TryParse(config["AZURE_OPENAI_EMBEDDING_DIMENSIONS"], out var dims)) o.EmbeddingDimensions = dims;
 });
 
-if (string.Equals(provider, "azureopenai", StringComparison.OrdinalIgnoreCase))
-{
+if (string.Equals(embeddingProvider, "azureopenai", StringComparison.OrdinalIgnoreCase))
     builder.Services.AddSingleton<IEmbeddingProvider, AzureOpenAIEmbeddingProvider>();
+else
+    builder.Services.AddSingleton<IEmbeddingProvider, LocalEmbeddingProvider>();
+
+if (string.Equals(chatProvider, "azureopenai", StringComparison.OrdinalIgnoreCase))
     builder.Services.AddSingleton<IChatProvider, AzureOpenAIChatProvider>();
+else
+    builder.Services.AddSingleton<IChatProvider, LocalChatProvider>();
+
+// VECTOR_STORE selects the retrieval index behind the IVectorStore seam (ADR-001):
+//   "memory" (default) — in-process brute-force cosine, per-replica, rebuilt at startup.
+//   "azuresearch"      — Azure AI Search: durable, shared across replicas, ANN (HNSW) retrieval.
+var vectorStore = config["VECTOR_STORE"] ?? "memory";
+if (string.Equals(vectorStore, "azuresearch", StringComparison.OrdinalIgnoreCase))
+{
+    var searchEndpoint = config["SEARCH_ENDPOINT"]
+        ?? throw new InvalidOperationException("VECTOR_STORE=azuresearch requires SEARCH_ENDPOINT.");
+    var searchIndex = config["SEARCH_INDEX"] ?? "runbooks";
+    builder.Services.AddSingleton<IVectorStore>(sp => new AzureAISearchVectorStore(
+        searchEndpoint,
+        searchIndex,
+        sp.GetRequiredService<IEmbeddingProvider>().Dimensions,
+        sp.GetRequiredService<ILogger<AzureAISearchVectorStore>>()));
 }
 else
 {
-    builder.Services.AddSingleton<IEmbeddingProvider, LocalEmbeddingProvider>();
-    builder.Services.AddSingleton<IChatProvider, LocalChatProvider>();
+    builder.Services.AddSingleton<IVectorStore, InMemoryVectorStore>();
 }
 
-builder.Services.AddSingleton<InMemoryVectorStore>();
 builder.Services.AddSingleton<CorpusLoader>();
 builder.Services.AddSingleton<RagService>();
 
@@ -85,12 +106,17 @@ else
 
 var host = builder.Build();
 
-// Auto-ingest the sample corpus at startup so the demo works out of the box.
+// Auto-ingest the sample corpus at startup so the demo works out of the box. With a durable index
+// (Azure AI Search) this is skipped when the index is already populated, avoiding needless re-embedding.
 try
 {
     using var scope = host.Services.CreateScope();
-    var loader = scope.ServiceProvider.GetRequiredService<CorpusLoader>();
-    await loader.LoadAsync();
+    var store = scope.ServiceProvider.GetRequiredService<IVectorStore>();
+    if (await store.CountAsync() == 0)
+    {
+        var loader = scope.ServiceProvider.GetRequiredService<CorpusLoader>();
+        await loader.LoadAsync();
+    }
 }
 catch (Exception ex)
 {

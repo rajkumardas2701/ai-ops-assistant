@@ -8,7 +8,7 @@ namespace AiOps.Api.Rag;
 /// them into the vector store. This is the "derived data" pipeline of the system (DDIA Ch.3/11):
 /// the search index is a materialized view derived from the source documents.
 /// </summary>
-public sealed class CorpusLoader(IEmbeddingProvider embeddings, InMemoryVectorStore store, ILogger<CorpusLoader> logger)
+public sealed class CorpusLoader(IEmbeddingProvider embeddings, IVectorStore store, ILogger<CorpusLoader> logger)
 {
     public string DefaultCorpusPath => Path.Combine(AppContext.BaseDirectory, "data", "runbooks");
 
@@ -21,7 +21,7 @@ public sealed class CorpusLoader(IEmbeddingProvider embeddings, InMemoryVectorSt
             return (0, 0);
         }
 
-        if (reset) store.Clear();
+        if (reset) await store.ClearAsync(ct);
 
         var files = Directory.GetFiles(path, "*.md", SearchOption.AllDirectories);
         var allChunks = new List<DocumentChunk>();
@@ -39,7 +39,7 @@ public sealed class CorpusLoader(IEmbeddingProvider embeddings, InMemoryVectorSt
         {
             var vectors = await embeddings.EmbedBatchAsync(allChunks.Select(c => c.Content).ToList(), ct);
             for (int i = 0; i < allChunks.Count; i++) allChunks[i].Embedding = vectors[i];
-            store.Add(allChunks);
+            await store.AddAsync(allChunks, ct);
         }
 
         logger.LogInformation("Ingested {Docs} docs / {Chunks} chunks from {Path}", files.Length, allChunks.Count, path);

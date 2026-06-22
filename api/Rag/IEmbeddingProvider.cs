@@ -7,6 +7,10 @@ namespace AiOps.Api.Rag;
 public interface IEmbeddingProvider
 {
     string Name { get; }
+
+    /// <summary>Dimensionality of the produced vectors (the index must match this).</summary>
+    int Dimensions { get; }
+
     Task<float[]> EmbedAsync(string text, CancellationToken ct = default);
     Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken ct = default);
 }
