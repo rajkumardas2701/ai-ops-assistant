@@ -47,3 +47,21 @@ public record SearchHit(DocumentChunk Chunk, double Score);
 
 /// <summary>Summary of an ingestion run.</summary>
 public record IngestResponse(int Documents, int Chunks, string Provider);
+
+/// <summary>
+/// 202 response when an ingestion run is started asynchronously (Stage D, Durable Functions).
+/// The caller polls <see cref="StatusUri"/> for progress instead of blocking on the work.
+/// </summary>
+public record IngestAccepted(string InstanceId, string StatusUri, string Status = "Accepted");
+
+/// <summary>Per-tenant outcome of a fan-out ingest activity.</summary>
+public record TenantIngestResult(string TenantId, int Docs, int Chunks);
+
+/// <summary>The plan an orchestration fans out over: the embedding provider and the tenants to seed.</summary>
+public record IngestPlan(string Provider, string[] Tenants);
+
+/// <summary>Aggregated result of an orchestrated ingest run (fan-in).</summary>
+public record IngestSummary(int Documents, int Chunks, string Provider, IReadOnlyList<TenantIngestResult> Tenants);
+
+/// <summary>Polled status of an ingestion orchestration.</summary>
+public record IngestStatus(string InstanceId, string Status, IngestSummary? Result = null, string? Error = null);

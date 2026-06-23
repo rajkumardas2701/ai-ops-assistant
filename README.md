@@ -42,7 +42,8 @@ func start --port 7071
 The sample runbook corpus auto-ingests at startup. Endpoints:
 - `GET  /api/health` — index size + active providers
 - `POST /api/chat`   — `{ "question": "...", "topK": 4 }`
-- `POST /api/ingest` — rebuild the index from `api/data/runbooks/*.md`
+- `POST /api/ingest` — start an async re-ingest run; returns `202` + a status URL
+- `GET  /api/ingest/{instanceId}` — poll an ingest run's status/result
 
 **Web** (terminal 2):
 ```powershell
@@ -65,7 +66,7 @@ In `api/local.settings.json` set:
 |------|----------|-------------|
 | 10 | Single team, single region ✅ | In-memory index, local providers, synchronous RAG |
 | 1,000 | Caching + token budgeting ✅ | Semantic cache, per-user rate limiting, daily token budget |
-| 100,000 | Shared state + multi-tenant isolation | Redis-backed cache/limits ✅, Azure AI Search ✅, real Azure OpenAI embeddings ✅, Cosmos partitioned by tenantId ✅, async ingestion |
+| 100,000 | Shared state + multi-tenant isolation | Redis-backed cache/limits ✅, Azure AI Search ✅, real Azure OpenAI embeddings ✅, Cosmos partitioned by tenantId ✅, async ingestion ✅ |
 | 1M | Front Door + autoscale | Premium/Container Apps, WAF, multi-deployment OpenAI router |
 | 10M | Global multi-region | Active-active, Cosmos multi-write, AI gateway (APIM) |
 
@@ -135,6 +136,26 @@ Ingestion seeds one tenant per corpus folder: `api/data/runbooks` → the shared
 `GET /api/documents` lists the calling tenant's documents straight from Cosmos. Access is passwordless:
 the app's managed identity holds the **Cosmos DB Built-in Data Contributor** data-plane role; local
 auth on the account is disabled. `scripts/verify-tenant-isolation.ps1` proves the boundary live.
+
+## Stage D — asynchronous ingestion with Durable Functions
+Re-embedding the corpus is slow and bursty (network calls to Azure OpenAI, writes to Cosmos +
+Search). Doing it inline in `POST /api/ingest` blocked the caller for the whole run and had no
+retries — a half-failed run left the index inconsistent. Ingestion is now an **orchestration**:
+
+- `POST /api/ingest` only *starts* the run and returns **`202 Accepted`** with a status URL.
+- The **orchestrator** resets the index once, then **fans out one activity per tenant** and fans the
+  per-tenant results back in — tenants are seeded in parallel instead of serially.
+- Each `SeedTenant` activity runs under a **retry policy** (3 attempts, exponential backoff), and
+  Durable's checkpointing means a replica restart resumes the run instead of restarting it. This is
+  safe across the API's 1–3 replicas because Durable serialises each orchestration via its control
+  queues (backed by the existing `AzureWebJobsStorage` account — no new infrastructure).
+- `GET /api/ingest/{instanceId}` returns the run's status and, once `Completed`, the summary
+  (`{ documents, chunks, provider, tenants[] }`). The status route lives under `/api` so the web
+  proxy forwards it (the API's ingress is internal-only, so Durable's built-in management webhooks
+  aren't reachable from the browser).
+
+The synchronous startup seed is unchanged — it still runs once on a cold boot when the index is
+empty, so the demo works out of the box; explicit re-ingestion is what became asynchronous.
 
 ## Project layout
 ```
