@@ -325,6 +325,11 @@ resource apiApp 'Microsoft.App/containerApps@2024-03-01' = {
           env: [
             { name: 'AzureWebJobsStorage', secretRef: 'azurewebjobsstorage' }
             { name: 'FUNCTIONS_WORKER_RUNTIME', value: 'dotnet-isolated' }
+            // Durable Functions builds its management webhook URIs from WEBSITE_HOSTNAME, which
+            // Azure Functions sets automatically but Container Apps does not. We expose our own
+            // status endpoint (GET /api/ingest/{id}) so the value is only needed to satisfy the
+            // DurableClient binding — any non-empty host works.
+            { name: 'WEBSITE_HOSTNAME', value: 'localhost' }
             { name: 'AI_PROVIDER', value: 'local' }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', value: appInsights.properties.ConnectionString }
             { name: 'RATE_LIMIT_PER_MINUTE', value: '20' }
